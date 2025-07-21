@@ -1,3 +1,4 @@
+<!-- vue-frontend/src/components/chart-builder/ChartPreview.vue -->
 <template>
   <div>
     <a-card 
@@ -17,6 +18,17 @@
             </template>
             미리보기 생성
           </a-button>
+          
+          <a-button 
+            v-if="chartData"
+            @click="refreshPreview"
+            size="large"
+          >
+            <template #icon>
+              <ReloadOutlined />
+            </template>
+            새로고침
+          </a-button>
         </a-space>
       </template>
 
@@ -29,74 +41,104 @@
           </p>
         </div>
 
-        <div v-else-if="chartData" style="text-align: center; padding: 20px">
+        <div v-else-if="chartData" style="padding: 20px">
+          <!-- 차트 렌더러 컴포넌트 사용 -->
           <div style="margin-bottom: 24px">
-            <component 
-              :is="chartIcons[chartConfig.viz_type]" 
-              style="font-size: 48px; color: #52c41a" 
-            />
-            <h3 style="margin-top: 16px; color: #52c41a">
-              미리보기 생성 완료!
-            </h3>
+            <a-tabs v-model:activeKey="activeTab" type="card">
+              <a-tab-pane key="vue" tab="Vue.js 렌더링">
+                <ChartRenderer
+                  :chartConfig="chartConfig"
+                  :chartData="chartData"
+                  :width="800"
+                  :height="400"
+                />
+              </a-tab-pane>
+              
+              <a-tab-pane key="info" tab="데이터 정보">
+                <div style="background: #f8f9fa; padding: 24px; border-radius: 8px">
+                  <a-descriptions title="차트 상세 정보" :column="2" size="small" bordered>
+                    <a-descriptions-item label="차트 이름">
+                      {{ chartConfig.slice_name || '이름 없음' }}
+                    </a-descriptions-item>
+                    <a-descriptions-item label="차트 타입">
+                      {{ getChartTypeName() }}
+                    </a-descriptions-item>
+                    <a-descriptions-item label="데이터 행 수">
+                      {{ chartData.query?.rowcount || 0 }}행
+                    </a-descriptions-item>
+                    <a-descriptions-item label="실행 시간">
+                      {{ chartData.query?.duration || 0 }}ms
+                    </a-descriptions-item>
+                    <a-descriptions-item label="데이터 컬럼">
+                      {{ (chartData.query?.columns || []).join(', ') || 'None' }}
+                    </a-descriptions-item>
+                    <a-descriptions-item label="메트릭">
+                      {{ (chartData.query?.metrics || []).join(', ') }}
+                    </a-descriptions-item>
+                    <a-descriptions-item label="캐시 상태">
+                      {{ chartData.is_cached ? '캐시됨' : '실시간' }}
+                    </a-descriptions-item>
+                    <a-descriptions-item label="생성 시간">
+                      {{ new Date().toLocaleString() }}
+                    </a-descriptions-item>
+                  </a-descriptions>
+
+                  <!-- 실제 데이터 미리보기 -->
+                  <div v-if="chartData.data && chartData.data.length > 0" style="margin-top: 24px">
+                    <h4>📊 데이터 미리보기 (상위 5개 레코드)</h4>
+                    <a-table
+                      :dataSource="previewData"
+                      :columns="previewColumns"
+                      :pagination="false"
+                      size="small"
+                      bordered
+                    />
+                  </div>
+                </div>
+              </a-tab-pane>
+              
+              <a-tab-pane key="raw" tab="Raw 데이터">
+                <div style="background: #f5f5f5; padding: 16px; border-radius: 6px; max-height: 400px; overflow: auto">
+                  <pre style="margin: 0; font-size: 12px; line-height: 1.4">{{ JSON.stringify(chartData, null, 2) }}</pre>
+                </div>
+              </a-tab-pane>
+            </a-tabs>
           </div>
 
-          <!-- 차트 기본 정보 -->
-          <div style="background: #f8f9fa; padding: 24px; border-radius: 8px; margin-bottom: 24px">
-            <a-descriptions title="차트 정보" :column="2" size="small">
-              <a-descriptions-item label="차트 이름">
-                {{ chartConfig.slice_name || '이름 없음' }}
-              </a-descriptions-item>
-              <a-descriptions-item label="차트 타입">
-                {{ getChartTypeName() }}
-              </a-descriptions-item>
-              <a-descriptions-item label="데이터 행 수">
-                {{ chartData.rowcount || 0 }}행
-              </a-descriptions-item>
-              <a-descriptions-item label="실행 시간">
-                {{ chartData.duration || 0 }}ms
-              </a-descriptions-item>
-            </a-descriptions>
-
-            <p style="margin-top: 16px; color: #666; font-size: 14px">
-              실제 차트 렌더링은 Apache Superset에서 이루어집니다.
-            </p>
-
-            <!-- 차트 데이터 요약 표시 -->
-            <div v-if="chartData" style="margin-top: 16px; text-align: center">
-              <a-tag color="blue">
-                데이터 {{ chartData.rowcount || 0 }}행
-              </a-tag>
-              <a-tag color="green">
-                컬럼 {{ getColumnCount() }}개
-              </a-tag>
+          <!-- 차트 기본 정보 요약 -->
+          <div style="background: #e6f7ff; padding: 16px; border-radius: 8px; border: 1px solid #91d5ff">
+            <div style="display: flex; align-items: center; margin-bottom: 12px">
+              <component 
+                :is="chartIcons[chartConfig.viz_type]" 
+                style="font-size: 24px; color: #1890ff; margin-right: 12px" 
+              />
+              <h3 style="margin: 0; color: #1890ff">
+                {{ getChartTypeName() }} 미리보기 완료!
+              </h3>
+            </div>
+            
+            <a-row :gutter="16">
+              <a-col :span="6">
+                <a-statistic title="데이터 행 수" :value="chartData.query?.rowcount || 0" />
+              </a-col>
+              <a-col :span="6">
+                <a-statistic title="컬럼 수" :value="(chartData.data && chartData.data.length > 0) ? Object.keys(chartData.data[0]).length : 0" />
+              </a-col>
+              <a-col :span="6">
+                <a-statistic title="실행 시간" :value="chartData.query?.duration || 0" suffix="ms" />
+              </a-col>
+              <a-col :span="6">
+                <a-statistic title="캐시" :value="chartData.is_cached ? '적용' : '미적용'" />
+              </a-col>
+            </a-row>
+            
+            <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #d9d9d9">
+              <p style="margin: 0; font-size: 14px; color: #666">
+                ✨ Vue.js에서 실시간으로 렌더링된 차트입니다. 
+                차트를 저장하면 Apache Superset에서도 동일하게 확인할 수 있습니다.
+              </p>
             </div>
           </div>
-
-          <!-- 차트 설정 요약 -->
-          <a-collapse style="margin-top: 16px">
-            <a-collapse-panel key="settings" header="차트 설정 상세">
-              <a-descriptions :column="2" size="small">
-                <a-descriptions-item label="데이터셋">
-                  {{ selectedDataset?.table_name }}
-                </a-descriptions-item>
-                <a-descriptions-item label="차트 타입">
-                  {{ getChartTypeName() }}
-                </a-descriptions-item>
-                <a-descriptions-item label="메트릭" :span="2">
-                  <span v-if="chartConfig.params?.metrics?.length">
-                    {{ chartConfig.params.metrics.join(', ') }}
-                  </span>
-                  <span v-else style="color: #999">설정되지 않음</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="그룹 기준" :span="2">
-                  <span v-if="chartConfig.params?.groupby?.length">
-                    {{ chartConfig.params.groupby.join(', ') }}
-                  </span>
-                  <span v-else style="color: #999">설정되지 않음</span>
-                </a-descriptions-item>
-              </a-descriptions>
-            </a-collapse-panel>
-          </a-collapse>
         </div>
 
         <div v-else style="text-align: center; padding: 80px 0">
@@ -107,8 +149,6 @@
           </a-empty>
         </div>
       </div>
-
-      <!-- 🔥 개별 저장 버튼 제거 - 상위 컴포넌트의 공통 버튼 사용 -->
     </a-card>
   </div>
 </template>
@@ -117,7 +157,7 @@
 import { defineComponent, ref, computed } from 'vue'
 import {
   EyeOutlined,
-  SaveOutlined,
+  ReloadOutlined,
   BarChartOutlined,
   LineChartOutlined,
   PieChartOutlined,
@@ -125,18 +165,20 @@ import {
   AreaChartOutlined,
   DotChartOutlined
 } from '@ant-design/icons-vue'
+import ChartRenderer from '../ChartRenderer.vue'
 
 export default defineComponent({
   name: 'ChartPreview',
   components: {
     EyeOutlined,
-    SaveOutlined,
+    ReloadOutlined,
     BarChartOutlined,
     LineChartOutlined,
     PieChartOutlined,
     TableOutlined,
     AreaChartOutlined,
-    DotChartOutlined
+    DotChartOutlined,
+    ChartRenderer
   },
   props: {
     chartConfig: {
@@ -158,7 +200,7 @@ export default defineComponent({
   },
   emits: ['preview', 'save', 'back'],
   setup (props, { emit }) {
-    const chartContainer = ref()
+    const activeTab = ref('vue')
 
     const chartTypeNames = {
       table: '테이블',
@@ -182,96 +224,106 @@ export default defineComponent({
       return chartTypeNames[props.chartConfig.viz_type] || props.chartConfig.viz_type
     }
 
-    const getColumnCount = () => {
-      if (!props.chartData?.data || !Array.isArray(props.chartData.data) || props.chartData.data.length === 0) {
-        return 0
-      }
-      return Object.keys(props.chartData.data[0] || {}).length
-    }
-
     const handlePreview = () => {
       emit('preview')
     }
 
-    const handleSave = () => {
-      emit('save')
+    const refreshPreview = () => {
+      emit('preview')
     }
 
-    const handleBack = () => {
-      emit('back')
-    }
+    // 데이터 미리보기용 처리
+    const previewData = computed(() => {
+      if (!props.chartData?.data || props.chartData.data.length === 0) {
+        return []
+      }
+      
+      return props.chartData.data.slice(0, 5).map((row, index) => ({
+        key: index,
+        ...row
+      }))
+    })
+
+    const previewColumns = computed(() => {
+      if (!props.chartData?.data || props.chartData.data.length === 0) {
+        return []
+      }
+      
+      const firstRow = props.chartData.data[0]
+      return Object.keys(firstRow).map(key => ({
+        title: key.charAt(0).toUpperCase() + key.slice(1),
+        dataIndex: key,
+        key: key,
+        width: 120,
+        ellipsis: true
+      }))
+    })
 
     return {
-      chartContainer,
+      activeTab,
       chartIcons,
       getChartTypeName,
-      getColumnCount,
       handlePreview,
-      handleSave,
-      handleBack
+      refreshPreview,
+      previewData,
+      previewColumns
     }
   }
 })
 </script>
 
 <style scoped>
-.ant-card-body {
-  padding: 24px;
-}
-
 .ant-descriptions-item-label {
   font-weight: 500;
 }
 
-.ant-tag {
-  margin: 0 4px;
+.ant-card {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.ant-collapse {
-  background: #fff;
-  border: 1px solid #f0f0f0;
+.ant-tabs-card .ant-tabs-tab {
+  border-radius: 6px 6px 0 0;
 }
 
-.ant-collapse-header {
-  background: #fafafa !important;
+.ant-statistic-title {
+  font-size: 12px;
+  color: #666;
 }
 
-/* 미리보기 영역 스타일 */
-.preview-container {
-  border: 1px dashed #d9d9d9;
-  border-radius: 8px;
-  background: #fafafa;
-  transition: all 0.3s ease;
-}
-
-.preview-container:hover {
-  border-color: #1890ff;
-  background: #f0f9ff;
-}
-
-/* 로딩 스피너 커스텀 */
-.ant-spin-large .ant-spin-dot {
-  font-size: 32px;
-}
-
-/* 버튼 스타일 */
-.ant-btn-large {
-  height: 40px;
-  padding: 0 20px;
+.ant-statistic-content {
   font-size: 16px;
-}
-
-/* 아이콘 스타일 */
-.chart-type-icon {
-  color: #52c41a;
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-/* 성공 메시지 스타일 */
-.success-message {
-  color: #52c41a;
   font-weight: 600;
-  margin-top: 16px;
+}
+
+pre {
+  font-family: 'Courier New', Consolas, monospace;
+  color: #333;
+}
+
+/* 탭 스타일 개선 */
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab {
+  background: #fafafa;
+  border: 1px solid #d9d9d9;
+  margin-right: 4px;
+}
+
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab-active {
+  background: white;
+  border-bottom-color: white;
+}
+
+/* 반응형 스타일 */
+@media (max-width: 768px) {
+  .ant-col {
+    margin-bottom: 16px;
+  }
+  
+  .ant-descriptions {
+    font-size: 12px;
+  }
+  
+  .chart-renderer {
+    overflow-x: auto;
+  }
 }
 </style>

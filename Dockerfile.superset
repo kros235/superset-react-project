@@ -18,10 +18,11 @@ RUN apt-get update && \
 # pip 업그레이드 (root 권한으로)
 RUN pip install --upgrade pip
 
-# MySQL 드라이버들 설치 (root 권한으로)
+# 🔥 MySQL 드라이버들 및 CORS 지원 패키지 설치
 RUN pip install --no-cache-dir PyMySQL==1.1.1
 RUN pip install --no-cache-dir mysql-connector-python
 RUN pip install --no-cache-dir flask-cors
+RUN pip install --no-cache-dir gunicorn
 
 # mysqlclient 설치 시도 (실패해도 계속 진행)
 RUN pip install --no-cache-dir mysqlclient || echo "mysqlclient installation failed, continuing with PyMySQL only"
@@ -30,23 +31,67 @@ RUN pip install --no-cache-dir mysqlclient || echo "mysqlclient installation fai
 RUN pip list | grep -i mysql
 RUN python -c "import pymysql; print('PyMySQL: OK')" || echo "PyMySQL: Failed"
 RUN python -c "import mysql.connector; print('MySQL Connector: OK')" || echo "MySQL Connector: Failed"
+RUN python -c "import flask_cors; print('Flask-CORS: OK')" || echo "Flask-CORS: Failed"
 
-# 초기화 스크립트 생성 (단계별로 분리)
+# 🔥 초기화 스크립트 개선 (CORS 문제 해결 포함)
 RUN echo '#!/bin/bash' > /app/superset-init.sh && \
     echo 'set -e' >> /app/superset-init.sh && \
     echo 'echo "=== Superset 초기화 시작 ==="' >> /app/superset-init.sh && \
+    echo '' >> /app/superset-init.sh && \
+    echo '# MariaDB 연결 대기' >> /app/superset-init.sh && \
+    echo 'echo "MariaDB 연결 대기 중..."' >> /app/superset-init.sh && \
     echo 'while ! mysqladmin ping -h mariadb -u superset -psuperset123 --silent; do' >> /app/superset-init.sh && \
     echo '    echo "MariaDB 연결 대기..."' >> /app/superset-init.sh && \
-    echo '    sleep 2' >> /app/superset-init.sh && \
+    echo '    sleep 3' >> /app/superset-init.sh && \
     echo 'done' >> /app/superset-init.sh && \
+    echo 'echo "✅ MariaDB 연결 성공"' >> /app/superset-init.sh && \
+    echo '' >> /app/superset-init.sh && \
+    echo '# Superset 데이터베이스 초기화' >> /app/superset-init.sh && \
+    echo 'echo "데이터베이스 스키마 업그레이드 중..."' >> /app/superset-init.sh && \
     echo 'superset db upgrade' >> /app/superset-init.sh && \
-    echo 'superset fab create-admin --username admin --firstname Admin --lastname User --email admin@admin.com --password admin || echo "계정 존재"' >> /app/superset-init.sh && \
+    echo '' >> /app/superset-init.sh && \
+    echo '# 관리자 계정 생성' >> /app/superset-init.sh && \
+    echo 'echo "관리자 계정 생성 중..."' >> /app/superset-init.sh && \
+    echo 'superset fab create-admin \' >> /app/superset-init.sh && \
+    echo '    --username admin \' >> /app/superset-init.sh && \
+    echo '    --firstname Admin \' >> /app/superset-init.sh && \
+    echo '    --lastname User \' >> /app/superset-init.sh && \
+    echo '    --email admin@admin.com \' >> /app/superset-init.sh && \
+    echo '    --password admin || echo "관리자 계정이 이미 존재합니다"' >> /app/superset-init.sh && \
+    echo '' >> /app/superset-init.sh && \
+    echo '# Superset 초기화' >> /app/superset-init.sh && \
+    echo 'echo "Superset 기본 설정 초기화 중..."' >> /app/superset-init.sh && \
     echo 'superset init' >> /app/superset-init.sh && \
+    echo '' >> /app/superset-init.sh && \
     echo 'echo "=== 초기화 완료 ==="' >> /app/superset-init.sh && \
-    echo 'exec superset run -h 0.0.0.0 -p 8088 --with-threads --reload --debugger' >> /app/superset-init.sh
+    echo 'echo "🚀 Superset 서버 시작 중..."' >> /app/superset-init.sh && \
+    echo 'echo "📍 접속 주소: http://localhost:8088"' >> /app/superset-init.sh && \
+    echo 'echo "👤 관리자 계정: admin / admin"' >> /app/superset-init.sh && \
+    echo '' >> /app/superset-init.sh && \
+    echo '# 🔥 Gunicorn으로 서버 시작 (개발 환경 설정)' >> /app/superset-init.sh && \
+    echo 'exec gunicorn \' >> /app/superset-init.sh && \
+    echo '    --bind 0.0.0.0:8088 \' >> /app/superset-init.sh && \
+    echo '    --workers 4 \' >> /app/superset-init.sh && \
+    echo '    --worker-class gthread \' >> /app/superset-init.sh && \
+    echo '    --threads 2 \' >> /app/superset-init.sh && \
+    echo '    --timeout 120 \' >> /app/superset-init.sh && \
+    echo '    --keep-alive 2 \' >> /app/superset-init.sh && \
+    echo '    --max-requests 1000 \' >> /app/superset-init.sh && \
+    echo '    --max-requests-jitter 100 \' >> /app/superset-init.sh && \
+    echo '    --log-level debug \' >> /app/superset-init.sh && \
+    echo '    --access-logfile - \' >> /app/superset-init.sh && \
+    echo '    --error-logfile - \' >> /app/superset-init.sh && \
+    echo '    "superset.app:create_app()"' >> /app/superset-init.sh
 
 # 스크립트 실행 권한 부여
 RUN chmod +x /app/superset-init.sh
+
+# 🔥 환경 변수 설정 파일 생성
+RUN echo '# Superset 환경 변수' > /app/.env && \
+    echo 'FLASK_APP=superset' >> /app/.env && \
+    echo 'FLASK_ENV=development' >> /app/.env && \
+    echo 'SUPERSET_CONFIG_PATH=/app/superset_config.py' >> /app/.env && \
+    echo 'PYTHONPATH=/app:$PYTHONPATH' >> /app/.env
 
 # superset 사용자로 전환
 USER superset
@@ -56,9 +101,15 @@ WORKDIR /app
 
 # 환경 변수 설정
 ENV PYTHONPATH="/app:$PYTHONPATH"
+ENV FLASK_APP="superset"
+ENV FLASK_ENV="development"
 
-# 기본 포트 노출
+# 🔥 포트 노출
 EXPOSE 8088
 
-# 헬스체크용 명령어 확인
-RUN which curl
+# 🔥 헬스체크 개선
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8088/health || exit 1
+
+# 🔥 시작 명령 설정
+CMD ["/app/superset-init.sh"]
